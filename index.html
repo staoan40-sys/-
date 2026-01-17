@@ -3,46 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>精密自動光譜儀</title>
+    <title>四向區域光譜儀</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: white; margin: 0; padding: 10px; }
-        .container { position: relative; display: inline-block; width: 100%; max-width: 640px; }
+        .container { position: relative; display: inline-block; width: 100%; max-width: 400px; }
         video { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; }
-        #roi-guide { position: absolute; border: 2px dashed rgba(255, 0, 0, 0.6); left: 0; width: 100%; pointer-events: none; }
-        canvas { width: 100%; max-width: 640px; height: 300px; background: black; margin-top: 10px; border: 1px solid #0f0; }
+        /* 矩形區域導引線 */
+        #roi-box { 
+            position: absolute; 
+            border: 2px solid rgba(255, 255, 0, 0.6); 
+            background: rgba(255, 255, 0, 0.1);
+            pointer-events: none; 
+            box-sizing: border-box;
+        }
+        canvas { width: 100%; max-width: 400px; height: 250px; background: black; margin-top: 10px; border: 1px solid #0f0; }
         .controls { background: #222; padding: 15px; border-radius: 10px; margin-top: 10px; text-align: left; font-size: 13px; }
-        .slider-group { margin: 12px 0; display: flex; align-items: center; gap: 10px; }
-        label { width: 90px; flex-shrink: 0; color: #bbb; }
-        input[type=range] { flex-grow: 1; height: 20px; }
-        .calib-box { border-top: 1px solid #444; margin-top: 15px; padding-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .btn-group { margin-top: 15px; display: flex; gap: 10px; }
-        button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: white; }
+        .slider-group { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
+        label { width: 70px; flex-shrink: 0; color: #bbb; font-size: 12px; }
+        input[type=range] { flex-grow: 1; height: 18px; }
+        .calib-box { border-top: 1px solid #444; margin: 10px 0; padding-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn-group { display: flex; gap: 8px; margin-bottom: 10px; }
+        button { flex: 1; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; }
         .btn-a { background: #c0392b; } .btn-b { background: #2980b9; } .btn-save { background: #27ae60; }
-        input[type=number] { width: 60px; background: #333; color: #0f0; border: 1px solid #555; padding: 3px; }
+        input[type=number] { width: 50px; background: #333; color: #0f0; border: 1px solid #555; }
+        .roi-controls { border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-    <h3>精密自動光譜儀</h3>
+    <h3>四向區域精密光譜儀</h3>
     
     <div class="container">
         <video id="v" autoplay playsinline></video>
-        <div id="roi-guide"></div>
+        <div id="roi-box"></div>
     </div>
     
     <canvas id="c"></canvas>
 
     <div class="controls">
-        <div class="slider-group">
+        <div class="slider-group" style="background: #333; padding: 8px; border-radius: 5px;">
             <label style="color: #ff4d4d;">🎯 尋峰準心</label>
-            <input type="range" id="pixelSelector" min="0" max="1280" value="640">
-            <span id="curPix" style="color:#0f0; width:40px">640</span>
+            <input type="range" id="pixelSelector" min="0" max="720" value="360">
+            <span id="curPix" style="color:#0f0; width:35px">360</span>
+        </div>
+
+        <div class="roi-controls">
+            <div class="slider-group"><label>左端位置</label><input type="range" id="roiL" min="0" max="100" value="45"></div>
+            <div class="slider-group"><label>右端位置</label><input type="range" id="roiR" min="0" max="100" value="55"></div>
+            <div class="slider-group"><label>頂端位置</label><input type="range" id="roiT" min="0" max="100" value="10"></div>
+            <div class="slider-group"><label>底端位置</label><input type="range" id="roiB" min="0" max="100" value="90"></div>
         </div>
 
         <div class="btn-group">
             <button class="btn-a" onclick="setCalib('p1')">設為點 A</button>
             <button class="btn-b" onclick="setCalib('p2')">設為點 B</button>
-            <button class="btn-save" onclick="downloadCSV()">下載 CSV</button>
+            <button class="btn-save" onclick="downloadCSV()">下載 CSV數據</button>
         </div>
 
         <div class="calib-box">
@@ -51,18 +66,8 @@
         </div>
 
         <div class="slider-group">
-            <label>偵測靈敏度</label>
-            <input type="range" id="threshold" min="10" max="200" value="50">
-        </div>
-
-        <div class="slider-group">
             <label>手動焦距</label>
             <input type="range" id="focusRange" min="0" max="1" step="0.01" value="0.5">
-        </div>
-        
-        <div class="slider-group">
-            <label>掃描高度</label>
-            <input type="range" id="roiY" min="0" max="100" value="50">
         </div>
     </div>
 
@@ -70,22 +75,29 @@
         const v = document.getElementById('v');
         const c = document.getElementById('c');
         const ctx = c.getContext('2d');
-        const roiGuide = document.getElementById('roi-guide');
+        const roiBox = document.getElementById('roi-box');
         const pixSlider = document.getElementById('pixelSelector');
         let brightnessData = [];
         let track = null;
 
         async function init() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 1280, height: 720 } });
-            v.srcObject = stream;
-            track = stream.getVideoTracks()[0];
-            v.onloadedmetadata = () => { pixSlider.max = v.videoWidth; };
-            
-            const caps = track.getCapabilities();
-            if (caps.focusMode?.includes('manual')) {
-                document.getElementById('focusRange').oninput = (e) => track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: parseFloat(e.target.value) }] });
-            }
-            requestAnimationFrame(loop);
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+                v.srcObject = stream;
+                track = stream.getVideoTracks()[0];
+                v.onloadedmetadata = () => { 
+                    pixSlider.max = v.videoHeight; 
+                    pixSlider.value = v.videoHeight / 2;
+                };
+                
+                const caps = track.getCapabilities();
+                if (caps.focusMode?.includes('manual')) {
+                    document.getElementById('focusRange').oninput = (e) => track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: parseFloat(e.target.value) }] });
+                }
+                requestAnimationFrame(loop);
+            } catch(e) { alert("鏡頭啟動失敗"); }
         }
 
         function setCalib(id) { document.getElementById(id).value = pixSlider.value; }
@@ -93,241 +105,94 @@
 
         function loop() {
             if (v.readyState === v.HAVE_ENOUGH_DATA) {
-                const cw = c.width = 640; const ch = c.height = 300;
+                const cw = c.width = 400; const ch = c.height = 250;
                 const off = document.createElement('canvas');
                 off.width = v.videoWidth; off.height = v.videoHeight;
                 const oCtx = off.getContext('2d');
                 oCtx.drawImage(v, 0, 0);
 
-                const ryP = document.getElementById('roiY').value;
-                const ry = (ryP / 100) * v.videoHeight;
-                roiGuide.style.top = ryP + "%"; roiGuide.style.height = "5%";
-                
-                const img = oCtx.getImageData(0, ry, v.videoWidth, 5).data;
+                // 獲取四向滑桿數值
+                const L = document.getElementById('roiL').value;
+                const R = document.getElementById('roiR').value;
+                const T = document.getElementById('roiT').value;
+                const B = document.getElementById('roiB').value;
+
+                // 更新黃色矩形框外觀
+                roiBox.style.left = L + "%";
+                roiBox.style.width = (R - L) + "%";
+                roiBox.style.top = T + "%";
+                roiBox.style.height = (B - T) + "%";
+
+                // 計算像素座標
+                const xStart = Math.floor((L / 100) * v.videoWidth);
+                const xEnd = Math.floor((R / 100) * v.videoWidth);
+                const yStart = Math.floor((T / 100) * v.videoHeight);
+                const yEnd = Math.floor((B / 100) * v.videoHeight);
+                const roiW = Math.max(1, xEnd - xStart);
+                const roiH = Math.max(1, yEnd - yStart);
+
+                // 抓取整個矩形區域數據
+                const img = oCtx.getImageData(xStart, yStart, roiW, roiH).data;
                 brightnessData = [];
                 
                 ctx.fillStyle = "black"; ctx.fillRect(0, 0, cw, ch);
                 ctx.beginPath(); ctx.strokeStyle = "#00ff00";
 
-                for (let x = 0; x < v.videoWidth; x++) {
-                    let b = 0;
-                    for (let y = 0; y < 5; y++) {
-                        const i = (y * v.videoWidth + x) * 4;
-                        b += (img[i] + img[i+1] + img[i+2]) / 3;
+                // 分析垂直方向 (Y軸) 的平均亮度
+                for (let y = 0; y < roiH; y++) {
+                    let sumB = 0;
+                    for (let x = 0; x < roiW; x++) {
+                        const i = (y * roiW + x) * 4;
+                        sumB += (img[i] + img[i+1] + img[i+2]) / 3;
                     }
-                    b /= 5; brightnessData.push(b);
-                    const dx = (x / v.videoWidth) * cw;
-                    const dy = ch - (b / 255) * (ch - 80) - 40;
-                    if (x === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
+                    const avgB = sumB / roiW;
+                    brightnessData.push(avgB);
+                    
+                    const dx = (y / roiH) * cw;
+                    const dy = ch - (avgB / 255) * (ch - 60) - 30;
+                    if (y === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
                 }
                 ctx.stroke();
 
-                // 自動尋峰
+                // 校正與標註
                 const p1 = parseFloat(document.getElementById('p1').value);
                 const w1 = parseFloat(document.getElementById('w1').value);
                 const p2 = parseFloat(document.getElementById('p2').value);
                 const w2 = parseFloat(document.getElementById('w2').value);
                 const slope = (p2 !== p1) ? (w2 - w1) / (p2 - p1) : 0;
-                const thres = document.getElementById('threshold').value;
 
                 if (slope !== 0) {
-                    for (let i = 10; i < brightnessData.length - 10; i++) {
-                        const val = brightnessData[i];
-                        if (val > thres && val > brightnessData[i-1] && val > brightnessData[i+1] && val > brightnessData[i-5]) {
-                            const wl = w1 + (i - p1) * slope;
-                            const dx = (i / v.videoWidth) * cw;
-                            const dy = ch - (val / 255) * (ch - 80) - 40;
-                            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(dx, dy, 3, 0, 7); ctx.fill();
-                            ctx.save(); ctx.translate(dx, dy - 10); ctx.rotate(-Math.PI/4);
-                            ctx.fillText(wl.toFixed(1) + "nm", 0, 0); ctx.restore();
-                            i += 10; // 跳過鄰近點
+                    // 自動尋峰 (簡化版)
+                    for (let i = 5; i < brightnessData.length - 5; i++) {
+                        if (brightnessData[i] > 40 && brightnessData[i] > brightnessData[i-1] && brightnessData[i] > brightnessData[i+1]) {
+                            const absY = yStart + i; // 換算回原始影像的 Y 座標
+                            const wl = w1 + (absY - p1) * slope;
+                            const dx = (i / roiH) * cw;
+                            const dy = ch - (brightnessData[i] / 255) * (ch - 60) - 30;
+                            ctx.fillStyle = "white"; ctx.fillText(wl.toFixed(1), dx - 10, dy - 10);
+                            i += 10;
                         }
                     }
                 }
 
-                // 紅色準心
-                const sx = (pixSlider.value / v.videoWidth) * cw;
-                ctx.strokeStyle = "red"; ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, ch-40); ctx.stroke();
+                // 紅色準心線
+                const currentRelY = pixSlider.value - yStart;
+                const sx = (currentRelY / roiH) * cw;
+                if (sx >= 0 && sx <= cw) {
+                    ctx.strokeStyle = "red"; ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, ch); ctx.stroke();
+                }
             }
             requestAnimationFrame(loop);
         }
 
         function downloadCSV() {
-            let csv = "Pixel,Brightness\n";
+            let csv = "Relative_Y_Pixel,Brightness\n";
             brightnessData.forEach((b, i) => csv += `${i},${b}\n`);
             const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = 'spectrum_data.csv'; a.click();
+            a.href = URL.createObjectURL(blob); a.download = 'rect_spectrum.csv'; a.click();
         }
         window.onload = init;
     </script>
 </body>
 </html>
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>精密自動光譜儀</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; background: #121212; color: white; margin: 0; padding: 10px; }
-        .container { position: relative; display: inline-block; width: 100%; max-width: 640px; }
-        video { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; }
-        #roi-guide { position: absolute; border: 2px dashed rgba(255, 0, 0, 0.6); left: 0; width: 100%; pointer-events: none; }
-        canvas { width: 100%; max-width: 640px; height: 300px; background: black; margin-top: 10px; border: 1px solid #0f0; }
-        .controls { background: #222; padding: 15px; border-radius: 10px; margin-top: 10px; text-align: left; font-size: 13px; }
-        .slider-group { margin: 12px 0; display: flex; align-items: center; gap: 10px; }
-        label { width: 90px; flex-shrink: 0; color: #bbb; }
-        input[type=range] { flex-grow: 1; height: 20px; }
-        .calib-box { border-top: 1px solid #444; margin-top: 15px; padding-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .btn-group { margin-top: 15px; display: flex; gap: 10px; }
-        button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: white; }
-        .btn-a { background: #c0392b; } .btn-b { background: #2980b9; } .btn-save { background: #27ae60; }
-        input[type=number] { width: 60px; background: #333; color: #0f0; border: 1px solid #555; padding: 3px; }
-    </style>
-</head>
-<body>
-
-    <h3>精密自動光譜儀</h3>
-    
-    <div class="container">
-        <video id="v" autoplay playsinline></video>
-        <div id="roi-guide"></div>
-    </div>
-    
-    <canvas id="c"></canvas>
-
-    <div class="controls">
-        <div class="slider-group">
-            <label style="color: #ff4d4d;">🎯 尋峰準心</label>
-            <input type="range" id="pixelSelector" min="0" max="1280" value="640">
-            <span id="curPix" style="color:#0f0; width:40px">640</span>
-        </div>
-
-        <div class="btn-group">
-            <button class="btn-a" onclick="setCalib('p1')">設為點 A</button>
-            <button class="btn-b" onclick="setCalib('p2')">設為點 B</button>
-            <button class="btn-save" onclick="downloadCSV()">下載 CSV</button>
-        </div>
-
-        <div class="calib-box">
-            <div>A: <input type="number" id="p1" value="0"> px<br>→ <input type="number" id="w1" value="435.8"> nm</div>
-            <div>B: <input type="number" id="p2" value="0"> px<br>→ <input type="number" id="w2" value="546.1"> nm</div>
-        </div>
-
-        <div class="slider-group">
-            <label>偵測靈敏度</label>
-            <input type="range" id="threshold" min="10" max="200" value="50">
-        </div>
-
-        <div class="slider-group">
-            <label>手動焦距</label>
-            <input type="range" id="focusRange" min="0" max="1" step="0.01" value="0.5">
-        </div>
-        
-        <div class="slider-group">
-            <label>掃描高度</label>
-            <input type="range" id="roiY" min="0" max="100" value="50">
-        </div>
-    </div>
-
-    <script>
-        const v = document.getElementById('v');
-        const c = document.getElementById('c');
-        const ctx = c.getContext('2d');
-        const roiGuide = document.getElementById('roi-guide');
-        const pixSlider = document.getElementById('pixelSelector');
-        let brightnessData = [];
-        let track = null;
-
-        async function init() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 1280, height: 720 } });
-            v.srcObject = stream;
-            track = stream.getVideoTracks()[0];
-            v.onloadedmetadata = () => { pixSlider.max = v.videoWidth; };
-            
-            const caps = track.getCapabilities();
-            if (caps.focusMode?.includes('manual')) {
-                document.getElementById('focusRange').oninput = (e) => track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: parseFloat(e.target.value) }] });
-            }
-            requestAnimationFrame(loop);
-        }
-
-        function setCalib(id) { document.getElementById(id).value = pixSlider.value; }
-        pixSlider.oninput = () => { document.getElementById('curPix').innerText = pixSlider.value; };
-
-        function loop() {
-            if (v.readyState === v.HAVE_ENOUGH_DATA) {
-                const cw = c.width = 640; const ch = c.height = 300;
-                const off = document.createElement('canvas');
-                off.width = v.videoWidth; off.height = v.videoHeight;
-                const oCtx = off.getContext('2d');
-                oCtx.drawImage(v, 0, 0);
-
-                const ryP = document.getElementById('roiY').value;
-                const ry = (ryP / 100) * v.videoHeight;
-                roiGuide.style.top = ryP + "%"; roiGuide.style.height = "5%";
-                
-                const img = oCtx.getImageData(0, ry, v.videoWidth, 5).data;
-                brightnessData = [];
-                
-                ctx.fillStyle = "black"; ctx.fillRect(0, 0, cw, ch);
-                ctx.beginPath(); ctx.strokeStyle = "#00ff00";
-
-                for (let x = 0; x < v.videoWidth; x++) {
-                    let b = 0;
-                    for (let y = 0; y < 5; y++) {
-                        const i = (y * v.videoWidth + x) * 4;
-                        b += (img[i] + img[i+1] + img[i+2]) / 3;
-                    }
-                    b /= 5; brightnessData.push(b);
-                    const dx = (x / v.videoWidth) * cw;
-                    const dy = ch - (b / 255) * (ch - 80) - 40;
-                    if (x === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
-                }
-                ctx.stroke();
-
-                // 自動尋峰
-                const p1 = parseFloat(document.getElementById('p1').value);
-                const w1 = parseFloat(document.getElementById('w1').value);
-                const p2 = parseFloat(document.getElementById('p2').value);
-                const w2 = parseFloat(document.getElementById('w2').value);
-                const slope = (p2 !== p1) ? (w2 - w1) / (p2 - p1) : 0;
-                const thres = document.getElementById('threshold').value;
-
-                if (slope !== 0) {
-                    for (let i = 10; i < brightnessData.length - 10; i++) {
-                        const val = brightnessData[i];
-                        if (val > thres && val > brightnessData[i-1] && val > brightnessData[i+1] && val > brightnessData[i-5]) {
-                            const wl = w1 + (i - p1) * slope;
-                            const dx = (i / v.videoWidth) * cw;
-                            const dy = ch - (val / 255) * (ch - 80) - 40;
-                            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(dx, dy, 3, 0, 7); ctx.fill();
-                            ctx.save(); ctx.translate(dx, dy - 10); ctx.rotate(-Math.PI/4);
-                            ctx.fillText(wl.toFixed(1) + "nm", 0, 0); ctx.restore();
-                            i += 10; // 跳過鄰近點
-                        }
-                    }
-                }
-
-                // 紅色準心
-                const sx = (pixSlider.value / v.videoWidth) * cw;
-                ctx.strokeStyle = "red"; ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, ch-40); ctx.stroke();
-            }
-            requestAnimationFrame(loop);
-        }
-
-        function downloadCSV() {
-            let csv = "Pixel,Brightness\n";
-            brightnessData.forEach((b, i) => csv += `${i},${b}\n`);
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'spectrum_data.csv'; a.click();
-        }
-        window.onload = init;
-    </script>
-</body>
-</html>
-
