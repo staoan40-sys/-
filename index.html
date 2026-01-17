@@ -3,196 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>四向區域光譜儀</title>
+    <title>全功能光譜分析儀</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: white; margin: 0; padding: 10px; }
         .container { position: relative; display: inline-block; width: 100%; max-width: 400px; }
-        video { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; }
-        /* 矩形區域導引線 */
-        #roi-box { 
-            position: absolute; 
-            border: 2px solid rgba(255, 255, 0, 0.6); 
-            background: rgba(255, 255, 0, 0.1);
-            pointer-events: none; 
-            box-sizing: border-box;
-        }
+        video, #img-preview { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; min-height: 200px; }
+        #img-preview { display: none; object-fit: contain; background: #000; }
+        #roi-box { position: absolute; border: 2px solid rgba(255, 255, 0, 0.6); background: rgba(255, 255, 0, 0.1); pointer-events: none; box-sizing: border-box; }
         canvas { width: 100%; max-width: 400px; height: 250px; background: black; margin-top: 10px; border: 1px solid #0f0; }
         .controls { background: #222; padding: 15px; border-radius: 10px; margin-top: 10px; text-align: left; font-size: 13px; }
         .slider-group { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
-        label { width: 70px; flex-shrink: 0; color: #bbb; font-size: 12px; }
-        input[type=range] { flex-grow: 1; height: 18px; }
-        .calib-box { border-top: 1px solid #444; margin: 10px 0; padding-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .btn-group { display: flex; gap: 8px; margin-bottom: 10px; }
-        button { flex: 1; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; }
+        label { width: 70px; flex-shrink: 0; color: #bbb; }
+        input[type=range] { flex-grow: 1; }
+        .btn-group { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; min-width: 80px; }
         .btn-a { background: #c0392b; } .btn-b { background: #2980b9; } .btn-save { background: #27ae60; }
+        .btn-mode { background: #8e44ad; }
         input[type=number] { width: 50px; background: #333; color: #0f0; border: 1px solid #555; }
-        .roi-controls { border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 10px; }
+        #file-input { display: none; }
     </style>
 </head>
 <body>
 
-    <h3>四向區域精密光譜儀</h3>
+    <h3>光譜分析儀 (支援照片匯入)</h3>
     
     <div class="container">
         <video id="v" autoplay playsinline></video>
+        <img id="img-preview" />
         <div id="roi-box"></div>
     </div>
     
     <canvas id="c"></canvas>
 
     <div class="controls">
+        <div class="btn-group">
+            <button class="btn-mode" onclick="document.getElementById('file-input').click()">匯入手機照片</button>
+            <button class="btn-mode" onclick="switchToCamera()">恢復即時鏡頭</button>
+            <input type="file" id="file-input" accept="image/*" onchange="handleFile(this)">
+        </div>
+
         <div class="slider-group" style="background: #333; padding: 8px; border-radius: 5px;">
             <label style="color: #ff4d4d;">🎯 尋峰準心</label>
             <input type="range" id="pixelSelector" min="0" max="720" value="360">
             <span id="curPix" style="color:#0f0; width:35px">360</span>
         </div>
 
-        <div class="roi-controls">
-            <div class="slider-group"><label>左端位置</label><input type="range" id="roiL" min="0" max="100" value="45"></div>
-            <div class="slider-group"><label>右端位置</label><input type="range" id="roiR" min="0" max="100" value="55"></div>
-            <div class="slider-group"><label>頂端位置</label><input type="range" id="roiT" min="0" max="100" value="10"></div>
-            <div class="slider-group"><label>底端位置</label><input type="range" id="roiB" min="0" max="100" value="90"></div>
+        <div class="slider-group"><label>區域：左-右</label>
+            <input type="range" id="roiL" min="0" max="100" value="45">
+            <input type="range" id="roiR" min="0" max="100" value="55">
+        </div>
+        <div class="slider-group"><label>區域：頂-底</label>
+            <input type="range" id="roiT" min="0" max="100" value="10">
+            <input type="range" id="roiB" min="0" max="100" value="90">
         </div>
 
         <div class="btn-group">
             <button class="btn-a" onclick="setCalib('p1')">設為點 A</button>
             <button class="btn-b" onclick="setCalib('p2')">設為點 B</button>
-            <button class="btn-save" onclick="downloadCSV()">下載 CSV數據</button>
+            <button class="btn-save" onclick="downloadCSV()">下載數據</button>
         </div>
 
         <div class="calib-box">
-            <div>A: <input type="number" id="p1" value="0"> px<br>→ <input type="number" id="w1" value="435.8"> nm</div>
-            <div>B: <input type="number" id="p2" value="0"> px<br>→ <input type="number" id="w2" value="546.1"> nm</div>
-        </div>
-
-        <div class="slider-group">
-            <label>手動焦距</label>
-            <input type="range" id="focusRange" min="0" max="1" step="0.01" value="0.5">
+            <div>A: <input type="number" id="p1" value="0"> px → <input type="number" id="w1" value="435.8"> nm</div>
+            <div>B: <input type="number" id="p2" value="0"> px → <input type="number" id="w2" value="546.1"> nm</div>
         </div>
     </div>
 
     <script>
         const v = document.getElementById('v');
+        const imgP = document.getElementById('img-preview');
         const c = document.getElementById('c');
         const ctx = c.getContext('2d');
         const roiBox = document.getElementById('roi-box');
         const pixSlider = document.getElementById('pixelSelector');
         let brightnessData = [];
         let track = null;
+        let isImageMode = false;
 
         async function init() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 1280, height: 720 } });
                 v.srcObject = stream;
                 track = stream.getVideoTracks()[0];
-                v.onloadedmetadata = () => { 
-                    pixSlider.max = v.videoHeight; 
-                    pixSlider.value = v.videoHeight / 2;
-                };
-                
-                const caps = track.getCapabilities();
-                if (caps.focusMode?.includes('manual')) {
-                    document.getElementById('focusRange').oninput = (e) => track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: parseFloat(e.target.value) }] });
-                }
+                v.onloadedmetadata = () => { pixSlider.max = v.videoHeight; };
                 requestAnimationFrame(loop);
-            } catch(e) { alert("鏡頭啟動失敗"); }
+            } catch(e) { console.log("鏡頭啟動受限"); }
+        }
+
+        function handleFile(input) {
+            const file = input.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imgP.src = e.target.result;
+                    imgP.onload = () => {
+                        isImageMode = true;
+                        v.style.display = 'none';
+                        imgP.style.display = 'block';
+                        pixSlider.max = imgP.naturalHeight;
+                    };
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function switchToCamera() {
+            isImageMode = false;
+            v.style.display = 'block';
+            imgP.style.display = 'none';
+            pixSlider.max = v.videoHeight;
         }
 
         function setCalib(id) { document.getElementById(id).value = pixSlider.value; }
         pixSlider.oninput = () => { document.getElementById('curPix').innerText = pixSlider.value; };
 
         function loop() {
-            if (v.readyState === v.HAVE_ENOUGH_DATA) {
+            const source = isImageMode ? imgP : v;
+            const sW = isImageMode ? imgP.naturalWidth : v.videoWidth;
+            const sH = isImageMode ? imgP.naturalHeight : v.videoHeight;
+
+            if ((isImageMode && imgP.complete) || (!isImageMode && v.readyState === v.HAVE_ENOUGH_DATA)) {
                 const cw = c.width = 400; const ch = c.height = 250;
                 const off = document.createElement('canvas');
-                off.width = v.videoWidth; off.height = v.videoHeight;
+                off.width = sW; off.height = sH;
                 const oCtx = off.getContext('2d');
-                oCtx.drawImage(v, 0, 0);
+                oCtx.drawImage(source, 0, 0, sW, sH);
 
-                // 獲取四向滑桿數值
-                const L = document.getElementById('roiL').value;
-                const R = document.getElementById('roiR').value;
-                const T = document.getElementById('roiT').value;
-                const B = document.getElementById('roiB').value;
+                const L = document.getElementById('roiL').value, R = document.getElementById('roiR').value;
+                const T = document.getElementById('roiT').value, B = document.getElementById('roiB').value;
+                roiBox.style.left = L + "%"; roiBox.style.width = (R - L) + "%";
+                roiBox.style.top = T + "%"; roiBox.style.height = (B - T) + "%";
 
-                // 更新黃色矩形框外觀
-                roiBox.style.left = L + "%";
-                roiBox.style.width = (R - L) + "%";
-                roiBox.style.top = T + "%";
-                roiBox.style.height = (B - T) + "%";
+                const xStart = Math.floor((L/100)*sW), xEnd = Math.floor((R/100)*sW);
+                const yStart = Math.floor((T/100)*sH), yEnd = Math.floor((B/100)*sH);
+                const rW = Math.max(1, xEnd-xStart), rH = Math.max(1, yEnd-yStart);
 
-                // 計算像素座標
-                const xStart = Math.floor((L / 100) * v.videoWidth);
-                const xEnd = Math.floor((R / 100) * v.videoWidth);
-                const yStart = Math.floor((T / 100) * v.videoHeight);
-                const yEnd = Math.floor((B / 100) * v.videoHeight);
-                const roiW = Math.max(1, xEnd - xStart);
-                const roiH = Math.max(1, yEnd - yStart);
-
-                // 抓取整個矩形區域數據
-                const img = oCtx.getImageData(xStart, yStart, roiW, roiH).data;
+                const img = oCtx.getImageData(xStart, yStart, rW, rH).data;
                 brightnessData = [];
-                
                 ctx.fillStyle = "black"; ctx.fillRect(0, 0, cw, ch);
                 ctx.beginPath(); ctx.strokeStyle = "#00ff00";
 
-                // 分析垂直方向 (Y軸) 的平均亮度
-                for (let y = 0; y < roiH; y++) {
+                for (let y = 0; y < rH; y++) {
                     let sumB = 0;
-                    for (let x = 0; x < roiW; x++) {
-                        const i = (y * roiW + x) * 4;
+                    for (let x = 0; x < rW; x++) {
+                        const i = (y * rW + x) * 4;
                         sumB += (img[i] + img[i+1] + img[i+2]) / 3;
                     }
-                    const avgB = sumB / roiW;
+                    const avgB = sumB / rW;
                     brightnessData.push(avgB);
-                    
-                    const dx = (y / roiH) * cw;
-                    const dy = ch - (avgB / 255) * (ch - 60) - 30;
+                    const dx = (y / rH) * cw, dy = ch - (avgB / 255) * (ch - 60) - 30;
                     if (y === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
                 }
                 ctx.stroke();
 
-                // 校正與標註
-                const p1 = parseFloat(document.getElementById('p1').value);
-                const w1 = parseFloat(document.getElementById('w1').value);
-                const p2 = parseFloat(document.getElementById('p2').value);
-                const w2 = parseFloat(document.getElementById('w2').value);
+                const p1 = parseFloat(document.getElementById('p1').value), w1 = parseFloat(document.getElementById('w1').value);
+                const p2 = parseFloat(document.getElementById('p2').value), w2 = parseFloat(document.getElementById('w2').value);
                 const slope = (p2 !== p1) ? (w2 - w1) / (p2 - p1) : 0;
-
                 if (slope !== 0) {
-                    // 自動尋峰 (簡化版)
                     for (let i = 5; i < brightnessData.length - 5; i++) {
                         if (brightnessData[i] > 40 && brightnessData[i] > brightnessData[i-1] && brightnessData[i] > brightnessData[i+1]) {
-                            const absY = yStart + i; // 換算回原始影像的 Y 座標
-                            const wl = w1 + (absY - p1) * slope;
-                            const dx = (i / roiH) * cw;
-                            const dy = ch - (brightnessData[i] / 255) * (ch - 60) - 30;
+                            const wl = w1 + (yStart + i - p1) * slope;
+                            const dx = (i / rH) * cw, dy = ch - (brightnessData[i] / 255) * (ch - 60) - 30;
                             ctx.fillStyle = "white"; ctx.fillText(wl.toFixed(1), dx - 10, dy - 10);
-                            i += 10;
+                            i += 15;
                         }
                     }
                 }
-
-                // 紅色準心線
-                const currentRelY = pixSlider.value - yStart;
-                const sx = (currentRelY / roiH) * cw;
-                if (sx >= 0 && sx <= cw) {
-                    ctx.strokeStyle = "red"; ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, ch); ctx.stroke();
-                }
+                const sy = ((pixSlider.value - yStart) / rH) * cw;
+                if (sy >= 0 && sy <= cw) { ctx.strokeStyle = "red"; ctx.beginPath(); ctx.moveTo(sy, 0); ctx.lineTo(sy, ch); ctx.stroke(); }
             }
             requestAnimationFrame(loop);
         }
-
+        window.onload = init;
         function downloadCSV() {
-            let csv = "Relative_Y_Pixel,Brightness\n";
+            let csv = "Relative_Pixel,Brightness\n";
             brightnessData.forEach((b, i) => csv += `${i},${b}\n`);
             const blob = new Blob([csv], { type: 'text/csv' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob); a.download = 'rect_spectrum.csv'; a.click();
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'photo_spectrum.csv'; a.click();
         }
-        window.onload = init;
     </script>
 </body>
 </html>
