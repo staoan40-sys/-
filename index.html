@@ -3,29 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全功能光譜分析儀</title>
+    <title>精密光譜分析儀 V4</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: white; margin: 0; padding: 10px; }
         .container { position: relative; display: inline-block; width: 100%; max-width: 400px; }
-        video, #img-preview { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; min-height: 200px; }
-        #img-preview { display: none; object-fit: contain; background: #000; }
+        video, #img-preview { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; min-height: 200px; background: #000; }
+        #img-preview { display: none; object-fit: contain; }
         #roi-box { position: absolute; border: 2px solid rgba(255, 255, 0, 0.6); background: rgba(255, 255, 0, 0.1); pointer-events: none; box-sizing: border-box; }
-        canvas { width: 100%; max-width: 400px; height: 250px; background: black; margin-top: 10px; border: 1px solid #0f0; }
+        canvas { width: 100%; max-width: 400px; height: 280px; background: black; margin-top: 10px; border: 1px solid #0f0; }
         .controls { background: #222; padding: 15px; border-radius: 10px; margin-top: 10px; text-align: left; font-size: 13px; }
         .slider-group { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
-        label { width: 70px; flex-shrink: 0; color: #bbb; }
+        label { width: 85px; flex-shrink: 0; color: #bbb; }
         input[type=range] { flex-grow: 1; }
-        .btn-group { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
-        button { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; min-width: 80px; }
-        .btn-a { background: #c0392b; } .btn-b { background: #2980b9; } .btn-save { background: #27ae60; }
-        .btn-mode { background: #8e44ad; }
+        .btn-group { display: flex; gap: 5px; margin: 8px 0; flex-wrap: wrap; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; font-size: 12px; }
+        .btn-mode { background: #673ab7; } .btn-save { background: #2e7d32; }
+        .btn-a { background: #c62828; } .btn-b { background: #1565c0; }
+        .calib-box { border-top: 1px solid #444; margin: 10px 0; padding-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         input[type=number] { width: 50px; background: #333; color: #0f0; border: 1px solid #555; }
         #file-input { display: none; }
     </style>
 </head>
 <body>
 
-    <h3>光譜分析儀 (支援照片匯入)</h3>
+    <h3 style="margin:5px">精密光譜分析儀</h3>
     
     <div class="container">
         <video id="v" autoplay playsinline></video>
@@ -37,35 +38,41 @@
 
     <div class="controls">
         <div class="btn-group">
-            <button class="btn-mode" onclick="document.getElementById('file-input').click()">匯入手機照片</button>
-            <button class="btn-mode" onclick="switchToCamera()">恢復即時鏡頭</button>
+            <button class="btn-mode" onclick="document.getElementById('file-input').click()">匯入照片</button>
+            <button class="btn-mode" onclick="switchToCamera()">即時鏡頭</button>
+            <button style="background:#555" onclick="flipImage()">反轉影像方向</button>
             <input type="file" id="file-input" accept="image/*" onchange="handleFile(this)">
         </div>
 
-        <div class="slider-group" style="background: #333; padding: 8px; border-radius: 5px;">
+        <div id="focus-ctrl" class="slider-group" style="background: #2a2a2a; padding: 5px; border-radius: 5px;">
+            <label style="color: #ffeb3b;">🔍 手動焦距</label>
+            <input type="range" id="focusRange" min="0" max="1" step="0.01" value="0.5">
+        </div>
+
+        <div class="slider-group" style="background: #333; padding: 5px; border-radius: 5px;">
             <label style="color: #ff4d4d;">🎯 尋峰準心</label>
             <input type="range" id="pixelSelector" min="0" max="720" value="360">
             <span id="curPix" style="color:#0f0; width:35px">360</span>
         </div>
 
-        <div class="slider-group"><label>區域：左-右</label>
+        <div class="slider-group"><label>左端 | 右端</label>
             <input type="range" id="roiL" min="0" max="100" value="45">
             <input type="range" id="roiR" min="0" max="100" value="55">
         </div>
-        <div class="slider-group"><label>區域：頂-底</label>
+        <div class="slider-group"><label>頂端 | 底端</label>
             <input type="range" id="roiT" min="0" max="100" value="10">
             <input type="range" id="roiB" min="0" max="100" value="90">
         </div>
 
         <div class="btn-group">
-            <button class="btn-a" onclick="setCalib('p1')">設為點 A</button>
-            <button class="btn-b" onclick="setCalib('p2')">設為點 B</button>
-            <button class="btn-save" onclick="downloadCSV()">下載數據</button>
+            <button class="btn-a" onclick="setCalib('p1')">設 A 點</button>
+            <button class="btn-b" onclick="setCalib('p2')">設 B 點</button>
+            <button class="btn-save" onclick="downloadCSV()">下載 CSV</button>
         </div>
 
         <div class="calib-box">
-            <div>A: <input type="number" id="p1" value="0"> px → <input type="number" id="w1" value="435.8"> nm</div>
-            <div>B: <input type="number" id="p2" value="0"> px → <input type="number" id="w2" value="546.1"> nm</div>
+            <div>A: <input type="number" id="p1" value="0"> px<br>→ <input type="number" id="w1" value="435.8"> nm</div>
+            <div>B: <input type="number" id="p2" value="0"> px<br>→ <input type="number" id="w2" value="546.1"> nm</div>
         </div>
     </div>
 
@@ -76,18 +83,26 @@
         const ctx = c.getContext('2d');
         const roiBox = document.getElementById('roi-box');
         const pixSlider = document.getElementById('pixelSelector');
-        let brightnessData = [];
+        const focusRange = document.getElementById('focusRange');
+        
         let track = null;
         let isImageMode = false;
+        let brightnessData = [];
+        let isFlipped = false;
 
         async function init() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 1280, height: 720 } });
                 v.srcObject = stream;
                 track = stream.getVideoTracks()[0];
+                
                 v.onloadedmetadata = () => { pixSlider.max = v.videoHeight; };
+                
+                focusRange.oninput = (e) => {
+                    if(track) track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: parseFloat(e.target.value) }] });
+                };
                 requestAnimationFrame(loop);
-            } catch(e) { console.log("鏡頭啟動受限"); }
+            } catch(e) { document.getElementById('focus-ctrl').style.opacity = "0.5"; }
         }
 
         function handleFile(input) {
@@ -98,9 +113,9 @@
                     imgP.src = e.target.result;
                     imgP.onload = () => {
                         isImageMode = true;
-                        v.style.display = 'none';
-                        imgP.style.display = 'block';
+                        v.style.display = 'none'; imgP.style.display = 'block';
                         pixSlider.max = imgP.naturalHeight;
+                        document.getElementById('focus-ctrl').style.display = 'none'; // 照片模式隱藏調焦
                     };
                 };
                 reader.readAsDataURL(file);
@@ -109,10 +124,12 @@
 
         function switchToCamera() {
             isImageMode = false;
-            v.style.display = 'block';
-            imgP.style.display = 'none';
+            v.style.display = 'block'; imgP.style.display = 'none';
+            document.getElementById('focus-ctrl').style.display = 'flex';
             pixSlider.max = v.videoHeight;
         }
+
+        function flipImage() { isFlipped = !isFlipped; }
 
         function setCalib(id) { document.getElementById(id).value = pixSlider.value; }
         pixSlider.oninput = () => { document.getElementById('curPix').innerText = pixSlider.value; };
@@ -123,10 +140,14 @@
             const sH = isImageMode ? imgP.naturalHeight : v.videoHeight;
 
             if ((isImageMode && imgP.complete) || (!isImageMode && v.readyState === v.HAVE_ENOUGH_DATA)) {
-                const cw = c.width = 400; const ch = c.height = 250;
+                const cw = c.width = 400, ch = c.height = 280;
                 const off = document.createElement('canvas');
                 off.width = sW; off.height = sH;
                 const oCtx = off.getContext('2d');
+                
+                if (isFlipped) {
+                    oCtx.translate(0, sH); oCtx.scale(1, -1); // 垂直翻轉
+                }
                 oCtx.drawImage(source, 0, 0, sW, sH);
 
                 const L = document.getElementById('roiL').value, R = document.getElementById('roiR').value;
@@ -134,9 +155,8 @@
                 roiBox.style.left = L + "%"; roiBox.style.width = (R - L) + "%";
                 roiBox.style.top = T + "%"; roiBox.style.height = (B - T) + "%";
 
-                const xStart = Math.floor((L/100)*sW), xEnd = Math.floor((R/100)*sW);
-                const yStart = Math.floor((T/100)*sH), yEnd = Math.floor((B/100)*sH);
-                const rW = Math.max(1, xEnd-xStart), rH = Math.max(1, yEnd-yStart);
+                const xStart = Math.floor((L/100)*sW), rW = Math.max(1, Math.floor(((R-L)/100)*sW));
+                const yStart = Math.floor((T/100)*sH), rH = Math.max(1, Math.floor(((B-T)/100)*sH));
 
                 const img = oCtx.getImageData(xStart, yStart, rW, rH).data;
                 brightnessData = [];
@@ -151,11 +171,12 @@
                     }
                     const avgB = sumB / rW;
                     brightnessData.push(avgB);
-                    const dx = (y / rH) * cw, dy = ch - (avgB / 255) * (ch - 60) - 30;
+                    const dx = (y / rH) * cw, dy = ch - (avgB / 255) * (ch - 80) - 40;
                     if (y === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
                 }
                 ctx.stroke();
 
+                // 校正與自動尋峰
                 const p1 = parseFloat(document.getElementById('p1').value), w1 = parseFloat(document.getElementById('w1').value);
                 const p2 = parseFloat(document.getElementById('p2').value), w2 = parseFloat(document.getElementById('w2').value);
                 const slope = (p2 !== p1) ? (w2 - w1) / (p2 - p1) : 0;
@@ -163,7 +184,7 @@
                     for (let i = 5; i < brightnessData.length - 5; i++) {
                         if (brightnessData[i] > 40 && brightnessData[i] > brightnessData[i-1] && brightnessData[i] > brightnessData[i+1]) {
                             const wl = w1 + (yStart + i - p1) * slope;
-                            const dx = (i / rH) * cw, dy = ch - (brightnessData[i] / 255) * (ch - 60) - 30;
+                            const dx = (i / rH) * cw, dy = ch - (brightnessData[i] / 255) * (ch - 80) - 40;
                             ctx.fillStyle = "white"; ctx.fillText(wl.toFixed(1), dx - 10, dy - 10);
                             i += 15;
                         }
@@ -179,7 +200,7 @@
             let csv = "Relative_Pixel,Brightness\n";
             brightnessData.forEach((b, i) => csv += `${i},${b}\n`);
             const blob = new Blob([csv], { type: 'text/csv' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'photo_spectrum.csv'; a.click();
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'spectrum.csv'; a.click();
         }
     </script>
 </body>
