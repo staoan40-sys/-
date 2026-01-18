@@ -3,177 +3,181 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>垂直版精密光譜儀</title>
+    <title>球體追蹤與軌跡記錄 (Tracking + Chart.js)</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
-        body { font-family: sans-serif; text-align: center; background: #121212; color: white; margin: 0; padding: 10px; }
-        .container { position: relative; display: inline-block; width: 100%; max-width: 400px; }
-        video { width: 100%; display: block; border: 1px solid #444; border-radius: 8px; }
-        /* 垂直掃描線導引 */
-        #roi-guide { position: absolute; border-left: 2px dashed rgba(255, 0, 0, 0.8); top: 0; height: 100%; pointer-events: none; }
-        canvas { width: 100%; max-width: 400px; height: 300px; background: black; margin-top: 10px; border: 1px solid #0f0; }
-        .controls { background: #222; padding: 15px; border-radius: 10px; margin-top: 10px; text-align: left; font-size: 13px; }
-        .slider-group { margin: 12px 0; display: flex; align-items: center; gap: 10px; }
-        label { width: 90px; flex-shrink: 0; color: #bbb; }
-        input[type=range] { flex-grow: 1; height: 20px; }
-        .calib-box { border-top: 1px solid #444; margin-top: 15px; padding-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .btn-group { margin-top: 15px; display: flex; gap: 10px; }
-        button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: white; }
-        .btn-a { background: #c0392b; } .btn-b { background: #2980b9; } .btn-save { background: #27ae60; }
-        input[type=number] { width: 60px; background: #333; color: #0f0; border: 1px solid #555; padding: 3px; }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        h2 { margin-bottom: 10px; }
+        
+        /* 版面配置：左右兩欄 */
+        .main-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* 視訊區塊 */
+        .video-container {
+            position: relative;
+            width: 400px;
+            height: 300px;
+            border: 3px solid #444;
+            background: #000;
+        }
+        
+        video, canvas.overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            /* 鏡像翻轉，操作比較直覺 */
+            transform: scaleX(-1); 
+        }
+
+        /* 圖表區塊 */
+        .chart-container {
+            width: 400px;
+            height: 300px;
+            background-color: #2a2a2a;
+            border: 3px solid #444;
+            padding: 10px;
+        }
+
+        .status { margin-top: 15px; color: #0f0; font-family: monospace; }
     </style>
 </head>
 <body>
 
-    <h3>垂直版精密光譜儀</h3>
+    <h2>🎾 實時軌跡記錄 (黃色追蹤)</h2>
     
-    <div class="container">
-        <video id="v" autoplay playsinline></video>
-        <div id="roi-guide"></div>
-    </div>
-    
-    <canvas id="c"></canvas>
-
-    <div class="controls">
-        <div class="slider-group" style="background: #333; padding: 10px; border-radius: 5px;">
-            <label style="color: #ff4d4d;">🎯 尋峰準心</label>
-            <input type="range" id="pixelSelector" min="0" max="720" value="360">
-            <span id="curPix" style="color:#0f0; width:40px">360</span>
+    <div class="main-container">
+        <div class="video-container">
+            <video id="video" width="400" height="300" preload autoplay loop muted></video>
+            <canvas id="canvas" class="overlay" width="400" height="300"></canvas>
         </div>
 
-        <div class="btn-group">
-            <button class="btn-a" onclick="setCalib('p1')">設為點 A</button>
-            <button class="btn-b" onclick="setCalib('p2')">設為點 B</button>
-            <button class="btn-save" onclick="downloadCSV()">下載 CSV</button>
-        </div>
-
-        <div class="calib-box">
-            <div>A: <input type="number" id="p1" value="0"> px<br>→ <input type="number" id="w1" value="435.8"> nm</div>
-            <div>B: <input type="number" id="p2" value="0"> px<br>→ <input type="number" id="w2" value="546.1"> nm</div>
-        </div>
-
-        <div class="slider-group">
-            <label>掃描位置(左-右)</label>
-            <input type="range" id="roiX" min="0" max="100" value="50">
-        </div>
-
-        <div class="slider-group">
-            <label>偵測靈敏度</label>
-            <input type="range" id="threshold" min="10" max="200" value="50">
-        </div>
-
-        <div class="slider-group">
-            <label>手動焦距</label>
-            <input type="range" id="focusRange" min="0" max="1" step="0.01" value="0.5">
+        <div class="chart-container">
+            <canvas id="positionChart"></canvas>
         </div>
     </div>
+
+    <div class="status" id="status">等待啟動...</div>
 
     <script>
-        const v = document.getElementById('v');
-        const c = document.getElementById('c');
-        const ctx = c.getContext('2d');
-        const roiGuide = document.getElementById('roi-guide');
-        const pixSlider = document.getElementById('pixelSelector');
-        let brightnessData = [];
-        let track = null;
-
-        async function init() {
-            try {
-                // 改為更適合直立的設定
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-                });
-                v.srcObject = stream;
-                track = stream.getVideoTracks()[0];
-                v.onloadedmetadata = () => { 
-                    // 垂直版的準心現在是在 Y 軸上移動
-                    pixSlider.max = v.videoHeight; 
-                    pixSlider.value = v.videoHeight / 2;
-                };
-                
-                const caps = track.getCapabilities();
-                if (caps.focusMode?.includes('manual')) {
-                    document.getElementById('focusRange').oninput = (e) => track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: parseFloat(e.target.value) }] });
-                }
-                requestAnimationFrame(loop);
-            } catch(e) { alert("啟動失敗: " + e.message); }
-        }
-
-        function setCalib(id) { document.getElementById(id).value = pixSlider.value; }
-        pixSlider.oninput = () => { document.getElementById('curPix').innerText = pixSlider.value; };
-
-        function loop() {
-            if (v.readyState === v.HAVE_ENOUGH_DATA) {
-                const cw = c.width = 400; const ch = c.height = 300;
-                const off = document.createElement('canvas');
-                off.width = v.videoWidth; off.height = v.videoHeight;
-                const oCtx = off.getContext('2d');
-                oCtx.drawImage(v, 0, 0);
-
-                // 垂直掃描位置 (左右)
-                const rxP = document.getElementById('roiX').value;
-                const rx = (rxP / 100) * v.videoWidth;
-                roiGuide.style.left = rxP + "%";
-                
-                // 抓取垂直線數據 (寬度 5 像素)
-                const img = oCtx.getImageData(rx, 0, 5, v.videoHeight).data;
-                brightnessData = [];
-                
-                ctx.fillStyle = "black"; ctx.fillRect(0, 0, cw, ch);
-                ctx.beginPath(); ctx.strokeStyle = "#00ff00";
-
-                for (let y = 0; y < v.videoHeight; y++) {
-                    let b = 0;
-                    for (let x = 0; x < 5; x++) {
-                        const i = (y * 5 + x) * 4;
-                        b += (img[i] + img[i+1] + img[i+2]) / 3;
-                    }
-                    b /= 5; brightnessData.push(b);
-                    
-                    // 繪圖：X 軸現在代表影像的垂直位置
-                    const dx = (y / v.videoHeight) * cw;
-                    const dy = ch - (b / 255) * (ch - 80) - 40;
-                    if (y === 0) ctx.moveTo(dx, dy); else ctx.lineTo(dx, dy);
-                }
-                ctx.stroke();
-
-                // 校正與自動尋峰
-                const p1 = parseFloat(document.getElementById('p1').value);
-                const w1 = parseFloat(document.getElementById('w1').value);
-                const p2 = parseFloat(document.getElementById('p2').value);
-                const w2 = parseFloat(document.getElementById('w2').value);
-                const slope = (p2 !== p1) ? (w2 - w1) / (p2 - p1) : 0;
-                const thres = document.getElementById('threshold').value;
-
-                if (slope !== 0) {
-                    for (let i = 10; i < brightnessData.length - 10; i++) {
-                        const val = brightnessData[i];
-                        if (val > thres && val > brightnessData[i-1] && val > brightnessData[i+1] && val > brightnessData[i-5]) {
-                            const wl = w1 + (i - p1) * slope;
-                            const dx = (i / v.videoHeight) * cw;
-                            const dy = ch - (val / 255) * (ch - 80) - 40;
-                            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(dx, dy, 3, 0, 7); ctx.fill();
-                            ctx.save(); ctx.translate(dx, dy - 10); ctx.rotate(-Math.PI/4);
-                            ctx.fillText(wl.toFixed(1) + "nm", 0, 0); ctx.restore();
-                            i += 10;
+        window.onload = function() {
+            // --- 1. 設置變數 ---
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            const statusDiv = document.getElementById('status');
+            
+            // --- 2. 初始化 Chart.js 圖表 ---
+            const ctxChart = document.getElementById('positionChart').getContext('2d');
+            
+            const positionChart = new Chart(ctxChart, {
+                type: 'scatter', // 散佈圖最適合做 X,Y 座標圖
+                data: {
+                    datasets: [{
+                        label: '球體軌跡 (最近50點)',
+                        data: [], // 這裡會動態填入 {x, y}
+                        backgroundColor: 'rgba(255, 206, 86, 1)', // 黃色點
+                        borderColor: 'rgba(255, 206, 86, 0.5)',
+                        borderWidth: 1,
+                        pointRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0 // 關閉動畫以提高效能
+                    },
+                    scales: {
+                        x: {
+                            min: 0,
+                            max: 400, // 對應 Video 寬度
+                            title: { display: true, text: 'X 座標 (像素)' },
+                            grid: { color: '#444' }
+                        },
+                        y: {
+                            min: 0,
+                            max: 300, // 對應 Video 高度
+                            reverse: true, // 重要！螢幕座標Y是向下增加，圖表通常向上增加，所以反轉
+                            title: { display: true, text: 'Y 座標 (像素)' },
+                            grid: { color: '#444' }
                         }
                     }
                 }
+            });
 
-                // 紅色準心 (垂直位置參考)
-                const sy = (pixSlider.value / v.videoHeight) * cw;
-                ctx.strokeStyle = "red"; ctx.beginPath(); ctx.moveTo(sy, 0); ctx.lineTo(sy, ch-40); ctx.stroke();
+            // --- 3. 初始化 Tracking.js ---
+            const tracker = new tracking.ColorTracker(['yellow']);
+            
+            // 調整靈敏度
+            tracker.setMinDimension(10);
+            tracker.setMinGroupSize(10);
+
+            tracking.track('#video', tracker, { camera: true });
+
+            // --- 4. 處理追蹤事件 ---
+            tracker.on('track', function(event) {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (event.data.length === 0) {
+                    statusDiv.innerHTML = "未偵測到物體...";
+                    statusDiv.style.color = "#888";
+                } else {
+                    // 只取第一個偵測到的物體 (避免多顆球干擾圖表)
+                    const rect = event.data[0];
+                    
+                    // 計算中心點
+                    const centerX = rect.x + (rect.width / 2);
+                    const centerY = rect.y + (rect.height / 2);
+
+                    // 1. 在畫面上畫框
+                    context.strokeStyle = '#FF0000';
+                    context.lineWidth = 2;
+                    context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+                    context.fillStyle = '#fff';
+                    context.fillText(`(${Math.round(centerX)}, ${Math.round(centerY)})`, rect.x, rect.y - 5);
+
+                    // 2. 更新圖表數據
+                    updateChart(centerX, centerY);
+
+                    statusDiv.innerHTML = `座標 X: ${Math.round(centerX)}, Y: ${Math.round(centerY)}`;
+                    statusDiv.style.color = "#0f0";
+                }
+            });
+
+            // --- 5. 圖表更新函式 ---
+            function updateChart(x, y) {
+                const dataset = positionChart.data.datasets[0];
+                
+                // 新增數據點 (因為 Video CSS 有鏡像 scaleX(-1)，這裡 X 軸可能需要根據需求反轉)
+                // 這裡我們直接記錄原始偵測到的座標
+                dataset.data.push({ x: x, y: y });
+
+                // 保持陣列長度在 50 個以內 (刪除最舊的)
+                if (dataset.data.length > 50) {
+                    dataset.data.shift();
+                }
+
+                // 更新圖表
+                positionChart.update();
             }
-            requestAnimationFrame(loop);
-        }
-
-        function downloadCSV() {
-            let csv = "Pixel(Y),Brightness\n";
-            brightnessData.forEach((b, i) => csv += `${i},${b}\n`);
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob); a.download = 'v_spectrum_data.csv'; a.click();
-        }
-        window.onload = init;
+        };
     </script>
 </body>
 </html>
